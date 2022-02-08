@@ -1,0 +1,9 @@
+sympy
+six
+Biopython
+cobra<=0.5.11
+pandas
+scipy
+numpy
+setuptools
+jsonschema
