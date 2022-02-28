@@ -305,6 +305,7 @@ class MetabolicReaction(MEReaction):
         sign = -1 if self.reverse else 1
         for component, value in iteritems(stoichiometric_data.stoichiometry):
             new_stoichiometry[component] += value * sign
+
         new_stoichiometry = self.add_subreactions(stoichiometric_data.id,
                                                   new_stoichiometry)
 

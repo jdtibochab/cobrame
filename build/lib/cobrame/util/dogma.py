@@ -51,11 +51,8 @@ def return_frameshift_sequence(full_seq, frameshift_string):
     # Subtract 1 from start position to account for 0 indexing
     seq = ''
     for x in frameshift_string.split(','):
-        if ':' in x:
-            left_pos, right_pos = x.split(':')
-            seq += full_seq[int(left_pos) - 1: int(right_pos)]
-        else: # Addition, like in b4572, JDTB Feb 2022
-            seq += x
+        left_pos, right_pos = x.split(':')
+        seq += full_seq[int(left_pos) - 1: int(right_pos)]
     return seq
 
 

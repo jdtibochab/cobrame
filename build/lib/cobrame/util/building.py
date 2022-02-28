@@ -9,8 +9,6 @@ from Bio import SeqIO
 import cobrame
 from cobrame.util import dogma
 
-import re
-
 
 def add_transcription_reaction(me_model, tu_name, locus_ids, sequence,
                                update=True):
@@ -214,9 +212,7 @@ def build_reactions_from_genbank(me_model, gb_filename, tu_frame=None,
                                                 'tRNA', 'ncRNA'},
                                  verbose=True, frameshift_dict=None,
                                  trna_to_codon=None, update=True,full_seq=None,
-                                force_include_genes=[],
-                                ignore_pseudo=False,
-                                force_gene_id_type=False):
+                                force_include_genes=[]):
 
     # TODO handle special RNAse without type ('b3123')
     """Creates and adds transcription and translation reactions using genomic
@@ -303,14 +299,11 @@ def build_reactions_from_genbank(me_model, gb_filename, tu_frame=None,
 
     # Associate each feature (RNA_product) with a TU and add translation
     # reactions and demands
-    already_seen = []
     for feature in gb_file.features:
-        forced = 0
-        # Skip if not a gene used in ME construction. # Added ignore_pseudo to keep compatibility with ECOLIme
-        if feature.type not in element_types or (ignore_pseudo and 'pseudo' in feature.qualifiers): 
+        # Skip if not a gene used in ME construction
+        if feature.type not in element_types: #or 'pseudo' in feature.qualifiers:
             if 'locus_tag' in feature.qualifiers and feature.qualifiers['locus_tag'][0] in force_include_genes:
                 warn('Including {}'.format(feature.qualifiers['locus_tag'][0])) # Force the inclusion of some genes even though they dont meet the element type requirement
-                forced = 1
             else:
                 continue
         
@@ -318,26 +311,9 @@ def build_reactions_from_genbank(me_model, gb_filename, tu_frame=None,
         bnum = feature.qualifiers["old_locus_tag"][0] \
             if 'old_locus_tag' in feature.qualifiers.keys() \
             else feature.qualifiers["locus_tag"][0]
-        
-        # If a gene ID nomenclature was specified and the ID does not follow it
-        if force_gene_id_type and not re.search(force_gene_id_type,bnum):
-            candidates = feature.qualifiers["gene_synonym"]
-            chosen = [re.findall(force_gene_id_type,c) for c in candidates]
-            try:
-                bnum = [c for c in chosen if c][0][0]
-            except:
-                warn('No ID found for {}'.format(bnum))
-        # If bnum has repeated entries in the GB file, skip and warn
-        if bnum in already_seen:
-            warn('Skipping repeated {}'.format(bnum))
-            continue
-
-        already_seen.append(bnum)
-        
-        # Continue getting values
         left_pos = int(feature.location.start)
         right_pos = int(feature.location.end)
-        if feature.type == 'CDS' or forced:
+        if feature.type == 'CDS':
             rna_type = 'mRNA'
         elif feature.type == 'misc_RNA':
             rna_type = 'ncRNA'
@@ -347,6 +323,7 @@ def build_reactions_from_genbank(me_model, gb_filename, tu_frame=None,
             rna_type = 'mRNA'
         else:
             rna_type = feature.type
+
         #rna_type = 'mRNA' if feature.type == 'CDS' else feature.type
         strand = '+' if feature.strand == 1 else '-'
 

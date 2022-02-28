@@ -186,7 +186,7 @@ def get_reactions_of_met(me,met,s = 0, ignore_types = (),only_types = (), verbos
                 if verbose:
                     print('(',rxn.id,rxn.lower_bound,rxn.upper_bound,')', '\t',rxn.reaction)
 
-            elif s == pos*fwd or s == pos*rev:
+            elif s == pos*fwd or s == -pos*rev:
                 reactions.append(rxn)
                 if verbose:
                     print('(',rxn.id,rxn.lower_bound,rxn.upper_bound,')', '\t',rxn.reaction)

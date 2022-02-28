@@ -677,7 +677,7 @@ class TranslationData(ProcessData):
         """
         codons = (self.nucleotide_sequence[i: i + 3]
                   for i in range(0, (len(self.nucleotide_sequence)), 3))
-
+        
         amino_acid_sequence = '' # += instead of = (JDTB)
         for i in codons:
             amino_acid_sequence += ''.join(dogma.codon_table[i])

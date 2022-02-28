@@ -82,7 +82,7 @@ def single_change(me,met_id,single_change_function=False,met_flux_dict=0):
     elif single_change_function == 'feed_metabolite':
         feed_metabolite(me,met_id,met_flux_dict=met_flux_dict)
     elif single_change_function == 'gene_knockout':
-        single_gene_knockout()
+        single_gene_knockout(me,met_id)
     else: # Just normal sensitivity/cost calculation
         add_dummy_demand(me,met_id,met_flux_dict=met_flux_dict)
     
@@ -293,28 +293,28 @@ def transporter_knockout(me,transport_ids,NP=1,solution=0,precision=1e-6,growth_
     return flux_results_df
 
 def single_gene_knockout(model, gene_id,precision=1e-6):
-	temp_model = model
-	if not isinstance(model,cobra.MEModel):
-		temp_gene = temp_model.genes.get_by_id(gene_id)
-		reactions = temp_gene.reactions
-		for reaction in reactions:
-			rule = reaction.gene_reaction_rule
-			individual_rules = rule.split(' or ')
-			if len(individual_rules) == 1:
-				reaction.lower_bound = 0.
-				reaction.upper_bound = 0.
-		temp_model.optimize()
-	elif isinstance(model, cobrame.MEModel):
-		protein = temp_model.metabolites.get_by_id('protein_' + gene_id)
-		reactions = protein.reactions
-		for reaction in reactions:
-			reaction.lower_bound = 0.
-			reaction.upper_bound = 0.
-		solve_me_model(temp_model, 1., min_mu = .1, precision=precision, using_soplex=False,verbosity=0)
+    temp_model = model
+    if not isinstance(model,cobra.MEModel):
+        temp_gene = temp_model.genes.get_by_id(gene_id)
+        reactions = temp_gene.reactions
+        for reaction in reactions:
+            rule = reaction.gene_reaction_rule
+            individual_rules = rule.split(' or ')
+            if len(individual_rules) == 1:
+                reaction.lower_bound = 0.
+                reaction.upper_bound = 0.
+        temp_model.optimize()
+    elif isinstance(model, cobrame.MEModel):
+        protein = temp_model.metabolites.get_by_id('protein_' + gene_id)
+        reactions = protein.reactions
+        for reaction in reactions:
+            reaction.lower_bound = 0.
+            reaction.upper_bound = 0.
+        solve_me_model(temp_model, 1., min_mu = .1, precision=precision, using_soplex=False,verbosity=0)
 
-	if model.solution and model.solution.status == 'optimal':
-		flux_dict = model.solution.x_dict
-	else:
-		flux_dict = {r.id:0. for r in model.reactions}
-        
-	return gene_id, flux_dict
+    if model.solution and model.solution.status == 'optimal':
+        flux_dict = model.solution.x_dict
+    else:
+        flux_dict = {r.id:0. for r in model.reactions}
+
+    return gene_id, flux_dict

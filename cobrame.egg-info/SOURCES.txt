@@ -25,3 +25,4 @@ cobrame/util/dogma.py
 cobrame/util/helper_functions.py
 cobrame/util/massbalance.py
 cobrame/util/me_model_interface.py
+cobrame/util/sensitivity.py
