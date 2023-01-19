@@ -5,6 +5,12 @@ import pandas as pd
 import re
 import matplotlib.pyplot as plt
 import numpy as np
+from cobrame.util import mu
+from warnings import warn
+from cobra.core.Gene import parse_gpr
+from ast import parse as ast_parse, Name, And, Or, BitOr, BitAnd, \
+    BoolOp, Expression, NodeTransformer
+
 
 def get_base_complex_data(model, complex_id):
     """If a complex is modified in a metabolic reaction it will not
@@ -291,7 +297,7 @@ def solve_me_model(me, max_mu=1., precision=1e-6, min_mu=0, using_soplex=True,
     ## If fixed growth rate, solve as LP
     if mu_fix:
         from qminospy.me2 import ME_NLP
-        me_nlp = ME_NLP(me)
+        me_nlp = ME_NLP(me,growth_key=growth_key)
         x,status,hs = me_nlp.solvelp(mu_fix)
         me.solution.status = status
         me.solution.x_dict = {r:f for r,f in zip(me.reactions,x)}
@@ -366,7 +372,7 @@ def exchange_single_model(me, flux_dict = 0, solution=0):
         flux_dict = me.solution.x_dict
 
     for rxn in me.reactions:
-        if 'EX_' in rxn.id:
+        if not rxn.reactants or not rxn.products:
             flux = flux_dict[rxn.id]
 
             if not flux:
@@ -394,7 +400,8 @@ def get_metabolites_from_pattern(model,pattern):
             met_list.append(met.id)
     return met_list
 
-def flux_based_reactions(model,met_id,only_types=(),ignore_types = (),threshold = 0.,flux_dict=0):
+def flux_based_reactions(model,met_id,only_types=(),ignore_types = (),threshold = 0.,flux_dict=0,
+                         growth_symbol='mu'):
     if not flux_dict:
         flux_dict = model.solution.x_dict
     reactions = get_reactions_of_met(model,met_id,only_types=only_types,ignore_types=ignore_types,verbose=False)
@@ -404,11 +411,17 @@ def flux_based_reactions(model,met_id,only_types=(),ignore_types = (),threshold 
 
     result_dict = {}
     for rxn in reactions:
+        if rxn.id not in flux_dict:
+            print('{} not in fluxes'.format(rxn.id))
+            continue
         result_dict[rxn.id] = {}
         for rxn_met,stoich in rxn.metabolites.items():
             if rxn_met.id == met_id:
                 if hasattr(stoich, 'subs'):
-                    coeff = float(stoich.subs('mu',flux_dict['biomass_dilution']))
+                    try:
+                        coeff = float(stoich.subs(growth_symbol,flux_dict['biomass_dilution']))
+                    except:
+                        print('Cannot convert {} to float'.format(rxn.id))
                 else:
                     coeff = stoich
                 result_dict[rxn.id]['lb'] = rxn.lower_bound
@@ -588,3 +601,138 @@ def get_compartment_transport(model,comps):
         if len(r_comps & comps)>0 and len(r_comps) > 1:
             reactions.append(r)
     return reactions
+
+def find_gaps(model,growth_key=mu):
+    def process_model(model,growth_key=growth_key):
+        d = {}
+        for m in tqdm(model.metabolites):
+            t = {'c':set(), 'p':set()}
+            seen = []
+            for r in m.reactions:
+                (lb,ub) = (r.lower_bound,r.upper_bound)
+                if hasattr(lb,'subs'):
+                    lb = lb.subs(growth_key,1.)
+                if hasattr(ub,'subs'):
+                    ub = ub.subs(growth_key,1.)
+                coeff = r.metabolites[m]
+                if hasattr(coeff,'subs'):
+                    coeff = coeff.subs(growth_key,1.)
+                try:
+                    
+                    pos = 1 if coeff > 0 else -1
+                    rev = 1 if lb < 0 else 0
+                    fwd = 1 if ub > 0 else 0
+                    if pos*fwd == -1 or pos*rev == 1:
+                        t['c'].add(r.id)
+                    if pos*fwd == 1 or pos*rev == -1:
+                        t['p'].add(r.id)
+                except:
+                    warn('{} could not be read'.format(r.id))
+            d[m.id] = t
+        return d    
+    g = {}
+    d = process_model(model)
+    for m,t in d.items():
+        g[m] = {'p':0,'c':0,'u':0}
+        if not t['c']:
+            g[m]['c'] = 1
+        if not t['p']:
+            g[m]['p'] = 1
+        if len(t['c']) == 1 and t['c'] == t['p']:
+            g[m]['u'] = 1
+    df = pd.DataFrame.from_dict(g).T
+    df = df[df.any(axis=1)]
+    df = df.sort_index()
+    return df
+
+def listify_gpr(expr,level = 0):
+    import cobra
+
+    if level == 0:
+        return listify_gpr(parse_gpr(str(expr))[0], level = 1)
+    if isinstance(expr, Expression):
+        return listify_gpr(expr.body, level = 1) if hasattr(expr, "body") else ""
+    elif isinstance(expr, Name):
+        return expr.id
+    elif isinstance(expr, BoolOp):
+        op = expr.op
+        if isinstance(op, Or):
+            str_exp = list([listify_gpr(i, level = 1) for i in expr.values])
+        elif isinstance(op, And):
+            str_exp = tuple([listify_gpr(i, level = 1) for i in expr.values])
+        return str_exp
+    elif expr is None:
+        return ""
+    else:
+        raise TypeError("unsupported operation  " + repr(expr))
+
+    
+def get_tree(l_gpr,T={}):
+    if isinstance(l_gpr,str):
+        return l_gpr
+    else:
+        if isinstance(l_gpr,list):
+            op = 'or'
+        elif isinstance(l_gpr,tuple):
+            op = 'and'
+        T[op] = []
+        for idx,i in enumerate(l_gpr):
+            d = {}
+            T[op].append(get_tree(i,T=d))
+        return T
+    
+def append_graph(G,g):
+    if G == '$':
+        return g.copy()
+    if isinstance(G,dict):
+        for k,v in G.items():
+            G[k] = append_graph(v,g)
+        return G
+def concatenate_graphs(L,r=[]):
+    if r:
+        for i in r:
+            L = append_graph(L,i)
+        return L
+    elif isinstance(L,list):
+        if len(L) == 1:
+            return L[0]
+        else:
+            b = L[0]
+            r = L[1:]
+            L = concatenate_graphs(b,r)
+        return L
+    
+def get_graph(T,G={}):
+    if isinstance(T,str):
+        G[T] = '$'
+        return G
+    elif isinstance(T,dict):
+        if 'and' in T:
+            l = []
+            for i in T['and']:
+                d = {}
+                l.append(get_graph(i,d))
+            d = concatenate_graphs(l)
+            for k,v in d.items():
+                G[k] = v
+            return G
+        elif 'or' in T:
+            for i in T['or']:
+                G = get_graph(i,G)
+        return G
+    
+def traverse_graph(G,L = [], C = []):
+    if G == '$':
+        C.append(L)
+        return L,C
+    if isinstance(G,dict):
+        for k,v in G.items():
+            l = L + [k]
+            l,C = traverse_graph(v,l,C)
+        return L,C
+
+def expand_gpr(rule):
+    l = listify_gpr(rule)
+    T = get_tree(l,T={})
+    G = get_graph(T,G={})
+    return traverse_graph(G,L=[],C=[])[1]

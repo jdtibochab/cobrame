@@ -72,7 +72,7 @@ def add_dummy_demand(me,met_id,flux=0,met_flux_dict=0,fraction=0.01):
     rxn.upper_bound = flux
     
     
-def single_change(me,met_id,single_change_function=False,met_flux_dict=0):
+def single_change(me,met_id,single_change_function=False,met_flux_dict=0,growth_key='mu'):
     if single_change_function=='transporter': # close_transporter function
         close_transporter(me,met_id)
     elif single_change_function == 'overexpress':
@@ -82,11 +82,12 @@ def single_change(me,met_id,single_change_function=False,met_flux_dict=0):
     elif single_change_function == 'feed_metabolite':
         feed_metabolite(me,met_id,met_flux_dict=met_flux_dict)
     elif single_change_function == 'gene_knockout':
-        single_gene_knockout(me,met_id)
+        single_gene_knockout(me, met_id,growth_key=growth_key)
     else: # Just normal sensitivity/cost calculation
         add_dummy_demand(me,met_id,met_flux_dict=met_flux_dict)
     
-def single_flux_response(me,met_id,mu_fix=False,precision=1e-6,single_change_function=False,growth_key='mu',met_flux_dict=0):
+def single_flux_response(me,met_id,mu_fix=False,precision=1e-6,\
+                         single_change_function=False, growth_key='mu', met_flux_dict=0):
     '''
     This function calculates flux response of a single metabolite. Response of growth and energy are
     sensitixvity and cost, respectively.
@@ -94,10 +95,11 @@ def single_flux_response(me,met_id,mu_fix=False,precision=1e-6,single_change_fun
 
     if isinstance(met_id,list):
         for met in met_id:
-            single_change(me,met,single_change_function=single_change_function)
+            single_change(me,met,single_change_function=single_change_function,growth_key=growth_key)
         met_id = met
     else:
-        single_change(me,met_id,single_change_function=single_change_function,met_flux_dict=met_flux_dict)
+        single_change(me,met_id,single_change_function=single_change_function,
+                      met_flux_dict=met_flux_dict,growth_key=growth_key)
         
     solve_model(me,precision = precision,mu_fix=mu_fix,growth_key=growth_key)
     
@@ -165,6 +167,53 @@ def all_flux_responses(me,met_ids,mu_fix=False,solution=0,NP=1,precision=1e-6,
     flux_results_df = pd.DataFrame.from_dict(flux_dict)
     return flux_results_df
 
+def one_flux_response(me,met_ids,mu_fix=False,solution=0,NP=1,precision=1e-6,
+                       single_change_function=False,growth_key = 'mu',sequential=False,met_flux_dict=0,
+                     reaction = 'biomass_dilution'):
+    '''
+    This function calculates flux response of one reaction as a result of several perturbations.
+    '''
+    import copy
+    # Correct number of threads if necessary
+    NP = min([NP,len(met_ids)])
+    if not solution:
+        solve_model(me,precision = precision,mu_fix=mu_fix)
+    flux_dict = dict()
+    flux_dict['base'] = me.solution.x_dict[reaction]
+
+    obj = [rxn.id for rxn in me.objective][0]
+    
+    if NP == 1:
+        for met_id in tqdm(met_ids,leave=True,position=0):
+            og_me = copy.deepcopy(me)
+            single_flux_response(og_me,met_id,single_change_function=single_change_function,\
+                                 mu_fix=mu_fix,precision=precision,growth_key = growth_key,met_flux_dict=met_flux_dict)
+            flux_dict[met_id] = og_me.solution.x_dict[reaction]
+    else:
+        import multiprocessing as mp
+        pool = mp.Pool(NP)
+        pbar = tqdm(total=len(met_ids),position=0,leave=True)
+        pbar.set_description('{} response ({} threads)'.format(obj,NP))
+        def collect_result(result):
+            pbar.update(1)
+            flux_dict[result[0]] = result[1][reaction]
+
+        for met_id in met_ids:
+            if sequential:
+                met_idx = met_ids.index(met_id)
+                met_arg = met_ids[:met_idx+1] # All mets until met
+            else:
+                met_arg = met_id
+            args = (me,met_arg)
+            kwds = {'single_change_function':single_change_function,\
+                'mu_fix':mu_fix,'precision':precision,'growth_key':growth_key,
+                'met_flux_dict':met_flux_dict}
+            pool.apply_async(single_flux_response,args,kwds,
+                callback=collect_result)
+        pool.close()
+        pool.join()
+    flux_results_df = pd.DataFrame.from_dict({reaction:flux_dict})
+    return flux_results_df
 def process_flux_responses(me,flux_results_df,base_rxn):
     base_flux = flux_results_df.loc[base_rxn]['base']
     met_ids = flux_results_df.columns.values
@@ -292,9 +341,9 @@ def transporter_knockout(me,transport_ids,NP=1,solution=0,precision=1e-6,growth_
 
     return flux_results_df
 
-def single_gene_knockout(model, gene_id,precision=1e-6):
+def single_gene_knockout(model, gene_id,precision=1e-6,growth_key='mu'):
     temp_model = model
-    if not isinstance(model,cobra.MEModel):
+    if not isinstance(model,cobrame.MEModel):
         temp_gene = temp_model.genes.get_by_id(gene_id)
         reactions = temp_gene.reactions
         for reaction in reactions:
@@ -305,12 +354,10 @@ def single_gene_knockout(model, gene_id,precision=1e-6):
                 reaction.upper_bound = 0.
         temp_model.optimize()
     elif isinstance(model, cobrame.MEModel):
-        protein = temp_model.metabolites.get_by_id('protein_' + gene_id)
-        reactions = protein.reactions
-        for reaction in reactions:
-            reaction.lower_bound = 0.
-            reaction.upper_bound = 0.
-        solve_me_model(temp_model, 1., min_mu = .1, precision=precision, using_soplex=False,verbosity=0)
+        temp_model.reactions.get_by_id('translation_' + gene_id).bounds = (0,0)
+        solve_me_model(temp_model, 1., min_mu = .1,
+                       precision=precision, using_soplex=False,
+                       verbosity=0,growth_key=growth_key)
 
     if model.solution and model.solution.status == 'optimal':
         flux_dict = model.solution.x_dict

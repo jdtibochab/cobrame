@@ -293,10 +293,9 @@ def build_reactions_from_genbank(me_model, gb_filename, tu_frame=None,
     # RNA_products will be added so no need to update now
     for tu_id in tu_frame.index:
         # subtract 1 from TU start site to account for 0 indexing
-
         sequence = dogma.extract_sequence(full_seq, tu_frame.start[tu_id]-1,
-                                              tu_frame.stop[tu_id],
-                                              tu_frame.strand[tu_id])
+                                                  tu_frame.stop[tu_id],
+                                                  tu_frame.strand[tu_id])
 
         add_transcription_reaction(me_model, tu_id, set(), sequence,
                                    update=False)

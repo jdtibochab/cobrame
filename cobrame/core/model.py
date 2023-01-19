@@ -434,3 +434,23 @@ class MEModel(Model):
                 data.keff = sasa * median_keff / median_sasa
 
         self.update()
+
+    def optimize(self, max_mu=1., precision=1e-6, min_mu=0, verbosity = 2, mu_fix = False,
+                  growth_key='mu'):
+        me = self
+        if mu_fix:
+            from qminospy.me2 import ME_NLP
+            me_nlp = ME_NLP(me)
+            x,status,hs = me_nlp.solvelp(mu_fix)
+            me.solution.status = status
+            me.solution.x_dict = {r:f for r,f in zip(me.reactions,x)}
+        else:
+            from qminospy.me1 import ME_NLP1
+            # The object containing solveME methods--composite that uses a ME model object 
+            me_nlp = ME_NLP1(me, growth_key=growth_key)
+            # Use bisection for now (until the NLP formulation is worked out)
+            muopt, hs, xopt, cache = me_nlp.bisectmu(precision=precision, mumax=max_mu, verbosity=verbosity)
+            try:
+                me.solution.f = me.solution.x_dict['biomass_dilution']
+            except:
+                pass
