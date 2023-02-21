@@ -226,7 +226,8 @@ class MEModel(Model):
                 else:
                     s[met_index, i] = float(value)
         return s
-
+    def construct_S(self,growth_rate):
+        return self.construct_s_matrix(self,growth_rate)
     def construct_attribute_vector(self, attr_name, growth_rate):
         """build a vector of a reaction attribute at a specific growth rate
 
