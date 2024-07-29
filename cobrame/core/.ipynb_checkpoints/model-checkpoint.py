@@ -216,16 +216,21 @@ class MEModel(Model):
         """build the stoichiometric matrix at a specific growth rate"""
         # intialize to 0
         s = dok_matrix((len(self.metabolites), len(self.reactions)))
+        if hasattr(self, "mu"):
+            growth_key = self.mu
+        else:
+            growth_key = self.global_info.get('growth_key',mu)
         # populate with stoichiometry
         for i, r in enumerate(self.reactions):
             for met, value in iteritems(r._metabolites):
                 met_index = self.metabolites.index(met)
                 if hasattr(value, "subs"):
-                    s[met_index, i] = float(value.subs(mu, growth_rate))
+                    s[met_index, i] = float(value.subs(growth_key, growth_rate))
                 else:
                     s[met_index, i] = float(value)
         return s
-
+    def construct_S(self,growth_rate):
+        return self.construct_s_matrix(growth_rate)
     def construct_attribute_vector(self, attr_name, growth_rate):
         """build a vector of a reaction attribute at a specific growth rate
 
